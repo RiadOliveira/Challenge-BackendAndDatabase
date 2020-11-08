@@ -53,11 +53,9 @@ transactionsRouter.post(
 
     const importTransaction = new ImportTransactionsService();
 
-    const { transactions, categories } = await importTransaction.execute(
-      filePath,
-    );
+    const createdTransactions = await importTransaction.execute(filePath);
 
-    return response.json({ transactions, categories });
+    return response.json(createdTransactions);
   },
 );
 

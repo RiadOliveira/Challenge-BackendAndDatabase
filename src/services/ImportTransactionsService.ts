@@ -1,9 +1,15 @@
 import csvParse from 'csv-parse';
 import fs from 'fs';
 import path from 'path';
-import { getRepository } from 'typeorm';
+import {
+  getCustomRepository,
+  getRepository,
+  In,
+  TransactionRepository,
+} from 'typeorm';
 import Transaction from '../models/Transaction';
 import Category from '../models/Category';
+import TransactionsRepository from '../repositories/TransactionsRepository';
 
 interface CSVTransaction {
   title: string;
@@ -24,7 +30,10 @@ class ImportTransactionsService {
 
     const parseCSV = readCSVStream.pipe(parseStream);
 
-    const transactions: Transaction[] = [];
+    const categoriesRepository = getRepository(Category);
+    const transactionsRepository = getCustomRepository(TransactionsRepository);
+
+    const transactions: CSVTransaction[] = [];
     const categories: string[] = [];
 
     parseCSV.on('data', async line => {
@@ -40,6 +49,45 @@ class ImportTransactionsService {
     });
 
     await new Promise(resolve => parseCSV.on('end', resolve));
+
+    const existenCategories = await categoriesRepository.find({
+      where: { title: In(categories) },
+    });
+
+    const existentCategoriesTitles = existenCategories.map(
+      (category: Category) => category.title,
+    );
+
+    const addCategoryTitles = categories
+      .filter(category => !existentCategoriesTitles.includes(category))
+      .filter((value, index, self) => self.indexOf(value) === index);
+
+    const newCategories = categoriesRepository.create(
+      addCategoryTitles.map(title => ({
+        title,
+      })),
+    );
+
+    await categoriesRepository.save(newCategories);
+
+    const finalCategories = [...newCategories, ...existenCategories];
+
+    const createdTransactions = transactionsRepository.create(
+      transactions.map(transaction => ({
+        title: transaction.title,
+        type: transaction.type,
+        value: transaction.value,
+        category: finalCategories.find(
+          category => category.title === transaction.category,
+        ),
+      })),
+    );
+
+    await transactionsRepository.save(createdTransactions);
+
+    await fs.promises.unlink(filePath);
+
+    return createdTransactions;
 
     // const lines: string[] = [];
 
